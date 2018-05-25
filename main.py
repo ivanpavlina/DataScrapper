@@ -17,8 +17,8 @@ def run():
     # Initialize threads
     threads = [
         Database(database_input_queue),
-        MikrotikScrapper(database_input_queue),
-        APCScrapper(database_input_queue)
+        MikrotikScrapper(database_input_queue)
+        #APCScrapper(database_input_queue)
     ]
 
     # Start threads

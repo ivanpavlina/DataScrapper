@@ -3,8 +3,7 @@ from threading import Thread
 from time import sleep
 from etc import config
 from lib.logger import get_logger
-import time
-import re
+from lib.flow import Flow
 
 
 class MikrotikScrapper(Thread):
@@ -25,6 +24,14 @@ class MikrotikScrapper(Thread):
         self.wantRunning = True  # Can be changed from main
 
         self._apiConnection = None
+
+        self._flows = []
+        for flow in config.flows:
+            try:
+                obj = Flow(self.LOGGER, flow)
+                self._flows.append(obj)
+            except Exception, e:
+                self.LOGGER.error("Could not setup flow [{}]\n{}".format(flow, e))
 
     def _get_api_client(self):
         try:
@@ -50,14 +57,10 @@ class MikrotikScrapper(Thread):
 
     """
     Main loop
-    Check for new messagess and if anything in publishQueue send it
     """
     def run(self):
         self.running = True
         self.LOGGER.info("Starting loop")
-
-        last_lease_run = None
-        last_accounting_run = None
 
         while True:
             try:
@@ -86,94 +89,15 @@ class MikrotikScrapper(Thread):
 
                 # ## Check passed
 
-                # Get host leases data every 10 seconds
-                if not last_lease_run or time.time() - last_lease_run > config.mikrotik['lease_retrieve_interval']:
-                    self.LOGGER.debug("Retrieving lease data")
-                    lease_resource = client.get_resource('/ip/dhcp-server/lease/')
-                    lease_list = lease_resource.get()
-                    self.LOGGER.debug("Got {} leases".format(len(lease_list)))
-                    res = []
-                    for lease in lease_list:
-                        comment = lease.get('comment') or ''
-                        try:
-                            tmp = comment.split(';;')
-                            name = tmp[0]
-                            color = tmp[1]
-                            if not color.startswith('#'):
-                                color = '#{}'.format(color)
-                        except:
-                            name = comment
-                            color = '#44dddd'
-
-                        res.append(
-                            {'mac_address': lease.get('mac-address'),
-                             'ip_address': lease.get('address'),
-                             'host_name': lease.get('host-name') or 'unknown',
-                             'name': name,
-                             'chart_color': color,
-                             'active': 1 if lease.get('status') == 'bound' else 0}
-                        )
-
-                    self._out_report_queue.put({'type': 'mikrotik_lease',
-                                                'payload': res})
-                    last_lease_run = time.time()
-                    self.LOGGER.info("Lease data retrieved")
-
-                # Get traffic accounting data
-                # If first time running just take snapshot and discard results. It should prevent bandwidth spikes
-                if not last_accounting_run:
-                    traffic_resource = client.get_resource('/ip/accounting/snapshot/')
-                    traffic_resource.call('take')
-                    last_accounting_run = time.time()
-
-                # Get result every second
-                if time.time() - last_accounting_run > config.mikrotik['traffic_retrieve_interval']:
-                    self.LOGGER.debug("Retrieving accounting data")
-                    traffic_resource = client.get_resource('/ip/accounting/snapshot/')
-                    traffic_resource.call('take')
-                    traffic_list = traffic_resource.get()
-
-                    self.LOGGER.debug("Got {} traffic rows".format(len(traffic_list)))
-
-                    res = []
-                    lan_regex = re.compile(config.mikrotik['lan_range_regex'])
-                    for traffic in traffic_list:
-                        source_ip = str(traffic.get('src-address')).strip()
-                        destination_ip = str(traffic.get('dst-address')).strip()
-                        bandwidth_count = str(traffic.get('bytes')).strip()
-                        packet_count = str(traffic.get('packets')).strip()
-
-                        if lan_regex.match(source_ip) and lan_regex.match(destination_ip):
-                            traffic_type = 'local'
-                            local_ip = source_ip
-                        elif lan_regex.match(source_ip) and not lan_regex.match(destination_ip):
-                            traffic_type = 'upload'
-                            local_ip = source_ip
-                        elif not lan_regex.match(source_ip) and lan_regex.match(destination_ip):
-                            traffic_type = 'download'
-                            local_ip = destination_ip
-                        else:
-                            traffic_type = 'wan'
-                            local_ip = ''
-
-                        res.append({
-                            'run_interval': config.mikrotik['traffic_retrieve_interval'],
-                            'type': traffic_type,
-                            'source_ip': source_ip,
-                            'destination_ip': destination_ip,
-                            'local_ip': local_ip,
-                            'bytes_count': bandwidth_count,
-                            'packet_count': packet_count
-                        })
-
-                    self._out_report_queue.put({'type': 'mikrotik_traffic',
-                                                'payload': res})
-                    last_accounting_run = time.time()
-                    self.LOGGER.info("Traffic data retrieved")
+                # Run loop methods for all flows
+                # If flow returned anything send result to Database thread
+                for flow in self._flows:
+                    res = flow.loop_pass(client)
+                    if res:
+                        self._out_report_queue.put(res)
 
                 # Work done, sleep a bit
-                self.LOGGER.debug("..")
-                sleep(.1)
+                sleep(.2)
 
             except Exception, e:
                 self.LOGGER.error("Unexpected exception in loop\n***{}".format(e))

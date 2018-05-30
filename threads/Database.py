@@ -5,7 +5,7 @@ import json
 from etc import config
 from lib.logger import get_logger
 import time
-
+from lib.flow import Flow
 
 class Database(Thread):
 
@@ -24,6 +24,14 @@ class Database(Thread):
         self.wantRunning = True  # Can be changed from main
 
         self._connect_db_client()
+
+        self._flows = []
+        for flow in config.flows:
+            try:
+                obj = Flow(self.LOGGER, flow)
+                self._flows.append(obj)
+            except Exception, e:
+                self.LOGGER.error("Could not setup flow [{}]\n{}".format(flow, e))
 
     def __get_current_time_ms(self):
         return int(time.time())
@@ -233,7 +241,8 @@ class Database(Thread):
                 # If found insert event in DB so we can work it in next step
                 if not self._in_received_queue.empty():
                     job = self._in_received_queue.get()
-                    if job['type'] == 'mikrotik_lease':
+
+                    if job['name'] == 'dhcp_server_leases':
                         query = """INSERT INTO hosts (mac_address, ip_address, host_name, name, chart_color, active)
                                     VALUES (%s, %s, %s, %s, %s, %s)
                                     ON DUPLICATE KEY UPDATE 
@@ -255,9 +264,10 @@ class Database(Thread):
 
                         self._insert_query(query, query_vars)
                         self.LOGGER.info("Inserted lease data into DB")
-                    elif job['type'] == 'mikrotik_traffic':
-                        query = """INSERT INTO traffic (run_interval, type, source_ip, destination_ip, local_ip, bytes_count, packet_count)
-                                    VALUES (%s, %s, %s, %s, %s, %s, %s)"""
+                    elif job['name'] == 'lan_traffic_usage':
+                        query = """INSERT INTO traffic_lan 
+                            (run_interval, type, source_ip, destination_ip, local_ip, bytes_count, packet_count)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s)"""
                         query_vars = []
                         for data in job['payload']:
                             query_vars.append(
@@ -270,8 +280,31 @@ class Database(Thread):
                                  data['packet_count']))
                         self._insert_query(query, query_vars)
                         self.LOGGER.info("Inserted traffic data into DB")
+
+                    elif job['name'] == 'interface_usage':
+                        query = """INSERT INTO traffic_interface
+                            (name, 
+                             rx_bits_ps, tx_bits_ps,
+                             rx_packets_ps, tx_packets_ps,
+                             rx_drops_ps, tx_drops_ps,
+                             rx_error_ps, tx_error_ps
+                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)"""
+                        query_vars = []
+                        for data in job['payload']:
+                            query_vars.append(
+                                (data['name'],
+                                 data['rx-bits-per-second'],
+                                 data['tx-bits-per-second'],
+                                 data['rx-packets-per-second'],
+                                 data['tx-packets-per-second'],
+                                 data['rx-drops-per-second'],
+                                 data['tx-drops-per-second'],
+                                 data['rx-errors-per-second'],
+                                 data['tx-errors-per-second']))
+                        self._insert_query(query, query_vars)
+                        self.LOGGER.info("Inserted traffic data into DB")
                     else:
-                        self.LOGGER.error("Invalid job type [{}] received".format(job['type']))
+                        self.LOGGER.error("Invalid job type [{}] received".format(job['name']))
 
                     self._db_client.commit()
             except Exception, e:

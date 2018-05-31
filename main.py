@@ -25,7 +25,7 @@ def run():
     for thread in threads:
         thread.start()
 
-    logger.warning("Threads started")
+    logger.info("Threads started")
     while True:
         try:
             sleep(60)

@@ -13,6 +13,8 @@ class Flow:
         self._name = str(flow['name'])
         self._params = tuple(flow['params'])
         self._run_interval = float(flow['run_interval'])
+        self._mysql_type = str(flow['mysql_type'])
+        self._mysql_table = str(flow['mysql_table'])
 
         # Custom method vars
         self.lan_traffic_usage_first_run = True
@@ -31,6 +33,15 @@ class Flow:
     def get_flow_name(self):
         return self._name
 
+    def get_flow_mysql_type(self):
+        return self._mysql_type
+
+    def get_flow_mysql_table(self):
+        return self._mysql_table
+
+    def get_params(self):
+        return self._params
+
     # Called each thread loop pass, check if its time to execute method
     # Thread passes active api client object and it is passed to every method
     def loop_pass(self, client):
@@ -40,6 +51,8 @@ class Flow:
             # Run flow custom method
             method_result = self.__run_method(self._name, client)
 
+            # TODO
+            # Check if response is okay
             self._last_run_timestamp = time()
             self.LOGGER.debug("Method finished successfully")
 
@@ -48,9 +61,7 @@ class Flow:
                         'payload': method_result}
 
     # Custom flow methods. Called exactly as flow name
-    # Returns dict, ex.
-    #   {'name': 'flow_name',
-    #    'payload': [{'param1': 'val', 'param2': 'val'}, {...}}
+    # Method must return tuple with all results in order defined in flow config
 
     # @RouterOSApiClient
     def dhcp_server_leases(self, client):
@@ -71,12 +82,14 @@ class Flow:
                 color = '#44dddd'
 
             result.append(
-                {'mac_address': lease.get('mac-address'),
-                 'ip_address': lease.get('address'),
-                 'host_name': lease.get('host-name') or 'unknown',
-                 'name': name,
-                 'chart_color': color,
-                 'active': 1 if lease.get('status') == 'bound' else 0}
+                (
+                    lease.get('mac-address'),
+                    lease.get('address'),
+                    lease.get('host-name') or 'unknown',
+                    name,
+                    color,
+                    1 if lease.get('status') == 'bound' else 0
+                )
             )
 
         return result
@@ -114,15 +127,17 @@ class Flow:
                 traffic_type = 'wan'
                 local_ip = ''
 
-            res.append({
-                'run_interval': self._run_interval,
-                'type': traffic_type,
-                'source_ip': source_ip,
-                'destination_ip': destination_ip,
-                'local_ip': local_ip,
-                'bytes_count': bandwidth_count,
-                'packet_count': packet_count
-            })
+            res.append(
+                (
+                    self._run_interval,
+                    traffic_type,
+                    source_ip,
+                    destination_ip,
+                    local_ip,
+                    bandwidth_count,
+                    packet_count
+                )
+            )
 
         # If its a first run don't return anything
         if self.lan_traffic_usage_first_run:
@@ -132,8 +147,6 @@ class Flow:
 
     # @RouterOSApiClient
     def interface_usage(self, client):
-
-
         self.LOGGER.debug("Retrieving interface traffic data")
         resource = client.get_resource('/interface')
 
@@ -144,15 +157,17 @@ class Flow:
         self.LOGGER.debug("Interface traffic data results >> {}".format(interface_traffic_results))
         res = []
         for interface_traffic in interface_traffic_results:
-            res.append({
-                'name': interface_traffic['name'],
-                'rx-bits-per-second': interface_traffic['rx-bits-per-second'],
-                'tx-bits-per-second': interface_traffic['tx-bits-per-second'],
-                'rx-packets-per-second': interface_traffic['rx-packets-per-second'],
-                'tx-packets-per-second': interface_traffic['tx-packets-per-second'],
-                'rx-drops-per-second': interface_traffic['rx-drops-per-second'],
-                'tx-drops-per-second': interface_traffic['tx-drops-per-second'],
-                'rx-errors-per-second': interface_traffic['rx-errors-per-second'],
-                'tx-errors-per-second': interface_traffic['tx-errors-per-second']
-            })
-
+            res.append(
+                (
+                    interface_traffic['name'],
+                    interface_traffic['rx-bits-per-second'],
+                    interface_traffic['tx-bits-per-second'],
+                    interface_traffic['rx-packets-per-second'],
+                    interface_traffic['tx-packets-per-second'],
+                    interface_traffic['rx-drops-per-second'],
+                    interface_traffic['tx-drops-per-second'],
+                    interface_traffic['rx-errors-per-second'],
+                    interface_traffic['tx-errors-per-second']
+                )
+            )
+        return res

@@ -219,7 +219,6 @@ class Database(Thread):
         self.LOGGER.info("Starting loop")
         while True:
             time_start = self.__get_current_time_ms()
-
             try:
                 # Call disconnect if main wants to quit and client is still connected
                 if not self.wantRunning and self._db_client.open:
@@ -241,70 +240,34 @@ class Database(Thread):
                 # If found insert event in DB so we can work it in next step
                 if not self._in_received_queue.empty():
                     job = self._in_received_queue.get()
+                    job_name = job['name']
+                    job_payload = job['payload']
 
-                    if job['name'] == 'dhcp_server_leases':
-                        query = """INSERT INTO hosts (mac_address, ip_address, host_name, name, chart_color, active)
-                                    VALUES (%s, %s, %s, %s, %s, %s)
-                                    ON DUPLICATE KEY UPDATE 
-                                      mac_address = VALUES(mac_address),
-                                      ip_address = VALUES(ip_address),
-                                      host_name = VALUES(host_name),
-                                      name = VALUES(name),
-                                      chart_color = VALUES(chart_color),
-                                      active = VALUES(active)"""
-                        query_vars = []
-                        for data in job['payload']:
-                            query_vars.append(
-                                (data['mac_address'],
-                                 data['ip_address'],
-                                 data['host_name'],
-                                 data['name'],
-                                 data['chart_color'],
-                                 data['active']))
+                    for flow in self._flows:
+                        if flow.get_flow_name() == job_name:
+                            mysql_type = flow.get_flow_mysql_type()
+                            mysql_table = flow.get_flow_mysql_table()
+                            mysql_params = flow.get_params()
+                            query = ""
+                            if mysql_type.startswith('INSERT'):
+                                query += "INSERT INTO "
+                            else:
+                                raise Exception('Unknown mysql type {}'.format(mysql_type))
 
-                        self._insert_query(query, query_vars)
-                        self.LOGGER.info("Inserted lease data into DB")
-                    elif job['name'] == 'lan_traffic_usage':
-                        query = """INSERT INTO traffic_lan 
-                            (run_interval, type, source_ip, destination_ip, local_ip, bytes_count, packet_count)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s)"""
-                        query_vars = []
-                        for data in job['payload']:
-                            query_vars.append(
-                                (data['run_interval'],
-                                 data['type'],
-                                 data['source_ip'],
-                                 data['destination_ip'],
-                                 data['local_ip'],
-                                 data['bytes_count'],
-                                 data['packet_count']))
-                        self._insert_query(query, query_vars)
-                        self.LOGGER.info("Inserted traffic data into DB")
+                            query += "{} ({}) ".format(mysql_table, ", ".join(mysql_params))
+                            query += "VALUES ({}) ".format(", ".join("%s" for x in mysql_params))
 
-                    elif job['name'] == 'interface_usage':
-                        query = """INSERT INTO traffic_interface
-                            (name, 
-                             rx_bits_ps, tx_bits_ps,
-                             rx_packets_ps, tx_packets_ps,
-                             rx_drops_ps, tx_drops_ps,
-                             rx_error_ps, tx_error_ps
-                            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)"""
-                        query_vars = []
-                        for data in job['payload']:
-                            query_vars.append(
-                                (data['name'],
-                                 data['rx-bits-per-second'],
-                                 data['tx-bits-per-second'],
-                                 data['rx-packets-per-second'],
-                                 data['tx-packets-per-second'],
-                                 data['rx-drops-per-second'],
-                                 data['tx-drops-per-second'],
-                                 data['rx-errors-per-second'],
-                                 data['tx-errors-per-second']))
-                        self._insert_query(query, query_vars)
-                        self.LOGGER.info("Inserted traffic data into DB")
+                            if "ON_FAIL_UPDATE" in mysql_type:
+                                query += "ON DUPLICATE KEY UPDATE {} ".format(
+                                    ", ".join("{0} = VALUES({0})".format(param) for param in mysql_params)
+                                )
+
+                            if mysql_type.startswith('INSERT'):
+                                self._insert_query(query, job_payload)
+                                self.LOGGER.info("Insert for {} finished".format(job['name']))
+                            break
                     else:
-                        self.LOGGER.error("Invalid job type [{}] received".format(job['name']))
+                        self.LOGGER.error("Could not find configured flow [{}]".format(job['name']))
 
                     self._db_client.commit()
             except Exception, e:

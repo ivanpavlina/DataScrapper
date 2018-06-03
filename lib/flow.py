@@ -159,6 +159,7 @@ class Flow:
         for interface_traffic in interface_traffic_results:
             res.append(
                 (
+                    self._run_interval,
                     interface_traffic['name'],
                     interface_traffic['rx-bits-per-second'],
                     interface_traffic['tx-bits-per-second'],

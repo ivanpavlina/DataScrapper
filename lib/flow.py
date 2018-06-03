@@ -138,7 +138,7 @@ class Flow:
                     packet_count
                 )
             )
-
+         
         # If its a first run don't return anything
         if self.lan_traffic_usage_first_run:
             self.lan_traffic_usage_first_run = False

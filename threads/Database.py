@@ -19,9 +19,12 @@ class Database(Thread):
         # Setup inputs
         self._in_received_queue = in_received_queue
 
+        self._db_client = None
+
         # Setup flags
         self.running = False
         self.wantRunning = True  # Can be changed from main
+        self.errorCount = 0
 
         self._connect_db_client()
 
@@ -44,15 +47,18 @@ class Database(Thread):
                                               config.mysql['username'],
                                               config.mysql['password'],
                                               config.mysql['db'])
-
+            self.LOGGER.info("Connected to MySQL DB")
         except Exception, e:
+            self.errorCount += 1
             # If not connected block thread for few seconds and try again
             self.LOGGER.error("Error connecting to MySQL DB\n***{}".format(e))
-            self.LOGGER.error("Sleeping for 5 seconds and trying again...")
-            sleep(5)
-            return self._connect_db_client()
-
-        self.LOGGER.info("Connected to MySQL DB")
+            if self.errorCount < 3:
+                self.LOGGER.error("Sleeping for 5 seconds and trying again...")
+                sleep(5)
+                return self._connect_db_client()
+            else:
+                self.wantRunning = False
+                return
 
     def _disconnect_db_client(self):
         try:
@@ -221,7 +227,7 @@ class Database(Thread):
             time_start = self.__get_current_time_ms()
             try:
                 # Call disconnect if main wants to quit and client is still connected
-                if not self.wantRunning and self._db_client.open:
+                if not self.wantRunning and self._db_client and self._db_client.open:
                     self.LOGGER.info("Disconnecting MySQL client")
                     self._disconnect_db_client()
 
@@ -232,7 +238,7 @@ class Database(Thread):
                     break
 
                 # Connect client
-                if not self._db_client.open:
+                if not self._db_client or not self._db_client.open:
                     self.LOGGER.info("Connecting DB client")
                     return self._connect_db_client()
 

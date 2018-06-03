@@ -26,28 +26,36 @@ def run():
         thread.start()
 
     logger.info("Threads started")
+
+    # Sleep for thread init
+    sleep(5)
+
+    # Run thread checker loop
     while True:
         try:
-            sleep(60)
 
-            # Check if main should loop signal is sent
+            # Check if shutdown event is triggered, cleanup threads and exit loop
             if not run_loop:
-                logger.info("Received shutdown request, shutting down")
+                logger.info("Received shutdown event, cleaning up")
                 cleanup_threads(threads)
                 break
 
             # Check if threads are alive and well
             for thread in threads:
-                if not thread.running:
-                    logger.warning("{} thread not running, shutting down".format(thread.__class__.__name__))
-                    cleanup_threads(threads)
-                    break
+                try:
+                    if not thread.running:
+                        logger.warning("{} thread not running, triggering shutdown event".format(thread.__class__.__name__))
+                        raise Exception
+                except Exception:
+                    run_loop = False
+                    continue
 
             # Everything ok with threads, just print message
-            logger.info("Running...")
+            logger.debug("Running...")
+            sleep(5)
 
         except KeyboardInterrupt:
-            logger.warning("Got keyboard shutdown")
+            logger.warning("Got keyboard shutdown event")
             cleanup_threads(threads)
             break
         except Exception, e:
@@ -60,7 +68,9 @@ def cleanup_threads(threads):
     logger.info("Cleaning up")
     for thread in threads:
         thread.wantRunning = False
+        logger.info("Joining {}".format(thread.__class__.__name__))
         thread.join(10)
+        logger.info("Thread {} joined".format(thread.__class__.__name__))
 
 
 def shutdown_loop(signo, stack_frame):

@@ -28,7 +28,7 @@ def run():
     logger.info("Threads started")
 
     # Sleep for thread init
-    sleep(5)
+    #sleep(5)
 
     # Run thread checker loop
     while True:
@@ -79,15 +79,32 @@ def shutdown_loop(signo, stack_frame):
     run_loop = False
 
 
+def generate_welcome_message():
+    from etc.config import app as capp
+    appname = capp['name']
+    version = capp['version']
+    author = capp['author']
+    width = max([len(appname), len(version), len(author)]) + 20
+    return "\n{}\n{}\n{}\n{}\n{}""".format('*' * width,
+                                           '*{}*'.format(appname.center(width - 2)),
+                                           '*{}*'.format(author.center(width - 2)),
+                                           '*{}*'.format(("V" + version).center(width - 2)),
+                                           '*' * width)
+
+
+def generate_exit_message():
+    message = "Main done"
+    width = len(message) + 20
+    return "\n{}\n{}\n{}""".format('+' * width,
+                                   '+{}+'.format(message.center(width - 2)),
+                                   '+' * width)
+
+
 if __name__ == '__main__':
     # Setup logger
     logger = get_logger('Main')
-    logger.info("***************************")
-    logger.info("*      DATA SCRAPPER      *")
-    logger.info("*         V0.0.1          *")
-    logger.info("*          Exit           *")
-    logger.info("***************************")
 
+    logger.info(generate_welcome_message())
     # Setup listener for sigterm
     signal.signal(signal.SIGTERM, shutdown_loop)
 
@@ -96,6 +113,4 @@ if __name__ == '__main__':
     run()
 
     # Main done
-    logger.info("+++++++++++++++++++++++++++")
-    logger.info("+       Main done         +")
-    logger.info("+++++++++++++++++++++++++++")
+    logger.info(generate_exit_message())

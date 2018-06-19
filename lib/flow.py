@@ -51,8 +51,6 @@ class Flow:
             # Run flow custom method
             method_result = self.__run_method(self._name, client)
 
-            # TODO
-            # Check if response is okay
             self._last_run_timestamp = time()
             self.LOGGER.debug("Method finished successfully")
 
@@ -159,7 +157,6 @@ class Flow:
         for interface_traffic in interface_traffic_results:
             res.append(
                 (
-                    self._run_interval,
                     interface_traffic['name'],
                     interface_traffic['rx-bits-per-second'],
                     interface_traffic['tx-bits-per-second'],
